@@ -1,0 +1,27 @@
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+
+# Database files
+*.db
+
+# Uploaded files
+uploads/
+
+# IDE
+.vscode/
+
+# macOS
+.DS_Store
+
+# Pytest
+.pytest_cache/
+
+# Alembic
+*.pyc
