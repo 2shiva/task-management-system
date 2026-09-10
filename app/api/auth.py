@@ -3,6 +3,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -11,6 +12,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
+from app.core.token_blacklist import revoke_token
 from app.dependencies.auth import get_current_user
 from app.models import User
 from app.schemas.auth import (
@@ -26,6 +28,8 @@ router = APIRouter(
     prefix="/auth",
     tags=["Authentication"],
 )
+
+security = HTTPBearer()
 
 
 @router.post(
@@ -105,6 +109,20 @@ def login(
     }
 
 
+@router.post("/logout")
+def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: User = Depends(get_current_user),
+):
+    token = credentials.credentials
+
+    revoke_token(token)
+
+    return {
+        "message": "Logout successful"
+    }
+
+
 @router.get(
     "/profile",
     response_model=UserResponse,
@@ -149,9 +167,7 @@ def update_profile(
     return current_user
 
 
-@router.put(
-    "/change-password",
-)
+@router.put("/change-password")
 def change_password(
     password_data: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),
