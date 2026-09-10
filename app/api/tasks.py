@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,7 @@ from app.schemas.task import (
     TaskUpdateRequest,
 )
 from app.services.audit_logs import create_audit_log
-from app.services.notifications import create_notification
+from app.services.notification_service import create_notification
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -24,6 +24,7 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"])
 @router.post("/", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 def create_task(
     task_data: TaskCreateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -66,11 +67,11 @@ def create_task(
     )
 
     if task.assigned_to and task.assigned_to != current_user.id:
-        create_notification(
-            db,
-            task.assigned_to,
-            f"You have been assigned a new task: {task.title}",
-            task.id,
+        background_tasks.add_task(
+            create_notification,
+            user_id=task.assigned_to,
+            message=f"You have been assigned a new task: {task.title}",
+            task_id=task.id,
         )
 
     return task
@@ -290,6 +291,7 @@ def delete_task(
 def assign_task(
     task_id: int,
     assign_data: TaskAssignRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -327,8 +329,6 @@ def assign_task(
             detail="Inactive users cannot be assigned new tasks",
         )
 
-    old_assigned_to = task.assigned_to
-
     task.assigned_to = assigned_user.id
 
     db.commit()
@@ -346,11 +346,11 @@ def assign_task(
         ),
     )
 
-    create_notification(
-        db,
-        assigned_user.id,
-        f"You have been assigned task: {task.title}",
-        task.id,
+    background_tasks.add_task(
+        create_notification,
+        user_id=assigned_user.id,
+        message=f"You have been assigned task: {task.title}",
+        task_id=task.id,
     )
 
     return task
@@ -360,6 +360,7 @@ def assign_task(
 def update_task_status(
     task_id: int,
     status_data: TaskStatusUpdateRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -410,7 +411,7 @@ def update_task_status(
     task.status = new_status
 
     if new_status == TaskStatus.COMPLETED:
-        task.completed_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(task)
@@ -435,11 +436,11 @@ def update_task_status(
         recipient = task.created_by
 
     if recipient:
-        create_notification(
-            db,
-            recipient,
-            f"Task '{task.title}' status changed to {new_status.value}",
-            task.id,
+        background_tasks.add_task(
+            create_notification,
+            user_id=recipient,
+            message=f"Task '{task.title}' status changed to {new_status.value}",
+            task_id=task.id,
         )
 
     return task
